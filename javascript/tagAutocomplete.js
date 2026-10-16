@@ -1655,6 +1655,10 @@ function addAutocompleteToArea(area) {
         area.addEventListener('input', async (e) => {
             // Cancel autocomplete itself if the event has no inputType (e.g. because it was triggered by the updateInput() function)
             if (!e.inputType && !tacSelfTrigger) return;
+            // A self trigger (e.g. a wildcard file was just inserted, to show its contents) runs right away, as upstream:
+            // insertTextAtCursor records the new prompt's tags right after this event, so a debounced run would find
+            // no change and show nothing
+            const isSelfTrigger = !e.inputType;
             tacSelfTrigger = false;
 
             // Block hide we are composing (IME), so enter doesn't close the results
@@ -1669,12 +1673,12 @@ function addAutocompleteToArea(area) {
             // Run autocomplete immediately on delete (no debounce) so the dropdown
             // stays perfectly in sync while backspacing; the indexed search is fast
             // enough that this doesn't cause noticeable lag on modern devices.
-            if (!isDelete) {
+            if (!isDelete)
                 debouncedUpdateRuby();
-                await debouncedAutocomplete();
-            } else {
+            if (isDelete || isSelfTrigger)
                 await autocomplete(area, area.value);
-            }
+            else
+                await debouncedAutocomplete();
             checkKeywordInsertionUndo(area, e);
         });
         // Add focusout event listener

@@ -32,6 +32,10 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 
 ## 🆕 What's New
 
+### v0.2.3: Wildcard contents fix
+
+- **Wildcard files show their contents again**: after choosing a wildcard file, the popup lists the lines inside it instead of listing the files again ([#4](https://github.com/eduardoabreu81/sd-webui-tagcomplete-neo/issues/4))
+
 ### v0.2.2 — ANIMA artist prefix & embedding fixes
 
 - **ANIMA artist prefix** — new setting that automatically adds `@` before Danbooru artist tags when an ANIMA-based checkpoint is loaded ⭐
@@ -58,6 +62,9 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 ---
 
 ## 📖 Changelog
+
+### v0.2.3: Wildcard contents fix
+- Choosing a wildcard file now shows the lines inside it. Autocomplete triggered by the extension's own inserted text runs immediately again, while typing stays debounced (#4)
 
 ### v0.2.2 — ANIMA artist prefix & embedding fixes
 - New `Auto-prefix Danbooru artist tags with '@' for ANIMA-based checkpoints` setting (Off/Auto); detects the checkpoint's CivitAI base model by hash, cached locally
@@ -120,6 +127,9 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 - Extension resilience after Forge updates ✅
 - CivitAI trigger word lookup with SHA256 cache ✅
 - "After LoRA/LyCO" insertion option ✅
+
+### v0.2.3: Wildcard contents fix ✅
+- Wildcard file contents shown after choosing a file ✅
 
 ### v0.2.2 — ANIMA artist prefix & embedding fixes ✅
 - `@` prefix for Danbooru artist tags on ANIMA checkpoints ✅

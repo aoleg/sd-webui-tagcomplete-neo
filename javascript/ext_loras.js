@@ -65,8 +65,10 @@ class LoraParser extends BaseTagParser {
 
             let result = new AutocompleteResult(name, ResultType.lora)
             result.meta = "Lora";
-            // Only "Show matching first" keeps other architectures; name theirs.
+            // With the filter on, name every architecture that is not the preset's
+            // (others only survive "Show matching first"), and mark unknown ones.
             if (archRank === 2) result.meta += LORA_ARCH_SEPARATOR + [...t[3]].join("/");
+            else if (archRank === 1 && preset) result.meta += LORA_ARCH_SEPARATOR + "unknown";
             result.sortKey = t[1];
             result.hash = t[2];
             result.archRank = archRank;

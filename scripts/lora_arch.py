@@ -23,7 +23,7 @@ import struct
 from pathlib import Path
 
 # Bump when the rules change, so cached results are recomputed.
-CLASSIFIER_VERSION = 2
+CLASSIFIER_VERSION = 3
 
 MAX_HEADER = 100 * 1024 * 1024
 
@@ -142,9 +142,9 @@ def _widths(parts: dict):
 def _modules(tensors: dict):
     """Group adapter tensors by module.
 
-    Returns (blocks, text_encoder): blocks maps each canonical block-level
-    module name to its (out, in) widths (or None); text_encoder maps raw
-    text-encoder module names to theirs.
+    Returns (blocks, top, text_encoder): blocks and top map canonical
+    block-level and top-level module names to their (out, in) widths (or
+    None); text_encoder maps raw text-encoder module names to theirs.
     """
     grouped = {}
     for key, shape in tensors.items():
@@ -154,15 +154,14 @@ def _modules(tensors: dict):
         module, _kind, part = split
         grouped.setdefault(module, {})[part] = shape
 
-    blocks, text_encoder = {}, {}
+    blocks, top, text_encoder = {}, {}, {}
     for module, parts in grouped.items():
         if _TEXT_ENCODER.match(module):
             text_encoder[module] = _widths(parts)
             continue
         name = _canon(_strip_prefixes(module))
-        if _BLOCK.match(name):
-            blocks[name] = _widths(parts)
-    return blocks, text_encoder
+        (blocks if _BLOCK.match(name) else top)[name] = _widths(parts)
+    return blocks, top, text_encoder
 
 
 # --- Families ----------------------------------------------------------------
@@ -565,11 +564,114 @@ FAMILIES = [
     ),
 ]
 
+# Top-level modules, for files that touch no block at all (slider LoRAs often
+# change a single conditioning layer). Same rules as FAMILIES: every top-level
+# module must fit the names, and a probe width must confirm. Only names seen on
+# real files or read in Forge's code are listed; anything else stays unknown.
+TOP_FAMILIES = [
+    _Family(
+        "krea",
+        ["first", "tmlp.(0|2)", "txtmlp.(0|1|3)", "tproj.1", "last.(linear|norm|modulation.lin)",
+         "txtfusion.projector"],
+        [_Variant([
+            ("first", 6144, None),
+            ("tmlp.0", 6144, None),
+            ("tmlp.2", 6144, 6144),
+            ("txtmlp.1", 6144, 2560),
+            ("txtmlp.3", 6144, 6144),
+            ("tproj.1", 36864, 6144),
+            ("last.linear", None, 6144),
+            ("txtfusion.projector", 1, 12),
+        ])],
+    ),
+    _Family(
+        "flux",
+        ["img_in", "txt_in", "(time_in|vector_in|guidance_in).(in_layer|out_layer)",
+         "final_layer.(linear|adaLN_modulation.1)"],
+        [_Variant([
+            ("img_in", 3072, 64),
+            ("txt_in", 3072, 4096),
+            ("(time_in|guidance_in).in_layer", 3072, 256),
+            ("vector_in.in_layer", 3072, 768),
+            ("(time_in|vector_in|guidance_in).out_layer", 3072, 3072),
+            ("final_layer.linear", 64, 3072),
+            ("final_layer.adaLN_modulation.1", 6144, 3072),
+        ])],
+    ),
+    _Family(
+        "klein",
+        ["img_in", "txt_in", "time_in.(in_layer|out_layer)", "final_layer.(linear|adaLN_modulation.1)",
+         "double_stream_modulation_(img|txt).lin", "single_stream_modulation.lin"],
+        [
+            # 4B: only the widths it shares with Flux.1's naming are certain.
+            _Variant([
+                ("img_in", 3072, 128),
+                ("time_in.in_layer", 3072, 256),
+                ("time_in.out_layer", 3072, 3072),
+                ("final_layer.linear", 128, 3072),
+                ("final_layer.adaLN_modulation.1", 6144, 3072),
+                ("double_stream_modulation_(img|txt).lin", 18432, 3072),
+                ("single_stream_modulation.lin", 9216, 3072),
+            ]),
+            _Variant([
+                ("img_in", 4096, 128),
+                ("txt_in", 4096, 12288),
+                ("time_in.in_layer", 4096, 256),
+                ("time_in.out_layer", 4096, 4096),
+                ("final_layer.linear", 128, 4096),
+                ("final_layer.adaLN_modulation.1", 8192, 4096),
+                ("double_stream_modulation_(img|txt).lin", 24576, 4096),
+                ("single_stream_modulation.lin", 12288, 4096),
+            ]),
+        ],
+    ),
+    _Family(
+        "moss",
+        ["video_embedder", "text_embedder.proj", "time_embedding.(0|2)", "shared_block_modulation",
+         "video_head_modulation", "final_linear_video"],
+        [_Variant([
+            ("video_embedder", 3072, 128),
+            ("text_embedder.proj", 3072, 4096),
+            ("time_embedding.0", 3072, 256),
+            ("time_embedding.2", 3072, 3072),
+            ("shared_block_modulation", 18432, 3072),
+            ("video_head_modulation", 6144, 3072),
+            ("final_linear_video", 128, 3072),
+        ])],
+    ),
+    _Family(
+        "fibo2",
+        ["x_embedder", "t_embedder.mlp.(0|2)", "final_layer.(linear|adaLN_modulation.#)"],
+        [_Variant([
+            ("x_embedder", 3584, 128),
+            ("final_layer.linear", 128, 3584),
+            ("final_layer.adaLN_modulation.#", 3584, 256),
+        ])],
+    ),
+    _Family(
+        "flux3",
+        ["emb_in.image", "(early_stream_modulations|single_stream_modulations).image.lin",
+         "final_layer.image.adaLN_modulation.#", "content_mode_blocks.image.#*"],
+        [_Variant([
+            ("emb_in.image", 3072, 128),
+            ("(early_stream_modulations|single_stream_modulations).image.lin", 9216, 3072),
+            ("final_layer.image.adaLN_modulation.#", 6144, 3072),
+            ("content_mode_blocks.image.#.(q_proj|k_proj|v_proj|attn_out)", 3072, 3072),
+            ("content_mode_blocks.image.#.mlp_in", 18432, 3072),
+            ("content_mode_blocks.image.#.mlp_out", 3072, 9216),
+        ])],
+    ),
+]
+
 LABELS = frozenset(f.label for f in FAMILIES)
 
 
 def _from_blocks(blocks: dict) -> frozenset:
     return frozenset(f.label for f in FAMILIES if f.matches(blocks))
+
+
+def _from_top(top: dict) -> frozenset:
+    return frozenset(f.label for f in TOP_FAMILIES if f.matches(top))
 
 
 def _from_text_encoder(text_encoder: dict) -> frozenset:
@@ -649,9 +751,11 @@ def classify(tensors: dict, metadata: dict = None, user_value: str = None) -> fr
     if user:
         return frozenset({user})
 
-    blocks, text_encoder = _modules(tensors)
+    blocks, top, text_encoder = _modules(tensors)
     if blocks:
         found = _from_blocks(blocks)
+    elif top:
+        found = _from_top(top)
     else:
         found = _from_text_encoder(text_encoder)
 

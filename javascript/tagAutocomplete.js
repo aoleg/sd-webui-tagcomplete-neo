@@ -274,6 +274,7 @@ async function syncOptions() {
         useEmbeddings: opts["tac_useEmbeddings"],
         includeEmbeddingsInNormalResults: opts["tac_includeEmbeddingsInNormalResults"],
         useLoras: opts["tac_useLoras"],
+        loraArchFilter: opts["tac_loraArchFilter"],
         useLycos: opts["tac_useLycos"],
         useLoraPrefixForLycos: opts["tac_useLoraPrefixForLycos"],
         showWikiLinks: opts["tac_showWikiLinks"],
@@ -1469,6 +1470,12 @@ async function autocomplete(textArea, prompt, fixedTag = null) {
         results = results.sort((a, b) => {
             return resultBiasMap.get(b) - resultBiasMap.get(a);
         });
+    }
+
+    // "Show matching first": LoRAs of the UI preset's architecture, then unknown, then others.
+    // Array.prototype.sort is stable, so name/date/frequency order is kept inside each group.
+    if (TAC_CFG.loraArchFilter === "Show matching first" && results.some(r => r.archRank !== undefined)) {
+        results = results.sort((a, b) => (a.archRank ?? 1) - (b.archRank ?? 1));
     }
 
     // Slice if the user has set a max result count and we are not in a extra networks / wildcard list

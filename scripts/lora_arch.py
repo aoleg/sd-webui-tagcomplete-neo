@@ -3,7 +3,7 @@
 Only the safetensors header is read: tensor names, shapes and __metadata__.
 The answer is a set of labels. Most labels are Forge Neo UI preset names
 (modules_forge/presets.py); a few name architectures that have no built-in
-preset (fibo2, flux3, ideogram4) so they can still be recognised. An empty set
+preset (fibo2, flux3, h3, ideogram4) so they can still be recognised. An empty set
 means unknown. A set with more than one label means the header cannot tell
 those architectures apart, and the LoRA belongs with each of them.
 
@@ -23,7 +23,7 @@ import struct
 from pathlib import Path
 
 # Bump when the rules change, so cached results are recomputed.
-CLASSIFIER_VERSION = 1
+CLASSIFIER_VERSION = 2
 
 MAX_HEADER = 100 * 1024 * 1024
 
@@ -532,6 +532,24 @@ FAMILIES = [
         )],
     ),
     _Family(
+        "h3",
+        [
+            "(blocks|token_refiner.blocks).#.attn.(qkv_proj|out_proj)",
+            "(blocks|token_refiner.blocks).#.mlp.(fc1|fc2)",
+            "blocks.#.adaln_proj.linear",
+        ],
+        [_Variant(
+            [
+                ("(blocks|token_refiner.blocks).#.attn.qkv_proj", 21504, 5376),
+                ("(blocks|token_refiner.blocks).#.attn.out_proj", 5376, 7168),
+                ("(blocks|token_refiner.blocks).#.mlp.fc1", 28672, 5376),
+                ("(blocks|token_refiner.blocks).#.mlp.fc2", 5376, 14336),
+                ("blocks.#.adaln_proj.linear", 96768, None),
+            ],
+            {"blocks.#": 50},
+        )],
+    ),
+    _Family(
         "ideogram4",
         ["layers.#.attention.(qkv|o)", "layers.#.feed_forward.(w1|w2|w3)", "layers.#.adaln_modulation"],
         [_Variant(
@@ -591,6 +609,7 @@ _METADATA = [
     ("ss_base_model_version", r"moss_image", "moss"),
     ("ss_base_model_version", r"fibo2", "fibo2"),
     ("ss_base_model_version", r"ideogram4", "ideogram4"),
+    ("ss_base_model_version", r"minimax_h3", "h3"),
     ("ss_base_model_version", r"lumina", "lumina"),
     ("ss_base_model_version", r"z_?image", "zit"),
     ("ss_base_model_version", r"wan", "wan"),

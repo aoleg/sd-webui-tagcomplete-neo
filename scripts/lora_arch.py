@@ -23,7 +23,7 @@ import struct
 from pathlib import Path
 
 # Bump when the rules change, so cached results are recomputed.
-CLASSIFIER_VERSION = 3
+CLASSIFIER_VERSION = 4
 
 MAX_HEADER = 100 * 1024 * 1024
 
@@ -301,6 +301,8 @@ FAMILIES = [
             "transformer_blocks.#.(norm1|norm1_context).linear",
             "single_transformer_blocks.#.attn.(to_q|to_k|to_v|norm_q|norm_k)",
             "single_transformer_blocks.#.(proj_mlp|proj_out|norm.linear)",
+            # Chroma (a Flux.1 schnell finetune) replaces the guidance input with this network.
+            "distilled_guidance_layer.(layers.#.(in_layer|out_layer|linear_1|linear_2)|norms.#)",
         ],
         [_Variant(
             [
@@ -321,6 +323,7 @@ FAMILIES = [
                 ("single_transformer_blocks.#.proj_mlp", 12288, 3072),
                 ("single_transformer_blocks.#.proj_out", 3072, 15360),
                 ("single_transformer_blocks.#.norm.linear", 9216, 3072),
+                ("distilled_guidance_layer.layers.#.(in_layer|out_layer|linear_1|linear_2)", 5120, 5120),
             ],
             {"double_blocks.#": 19, "single_blocks.#": 38,
              "transformer_blocks.#": 19, "single_transformer_blocks.#": 38},
@@ -697,7 +700,7 @@ def _from_text_encoder(text_encoder: dict) -> frozenset:
 _METADATA = [
     ("modelspec.architecture", r"stable-diffusion-xl", "xl"),
     ("modelspec.architecture", r"stable-diffusion-v1", "sd"),
-    ("modelspec.architecture", r"flux-1|flux\.1", "flux"),
+    ("modelspec.architecture", r"flux-1|flux\.1|chroma", "flux"),
     ("modelspec.architecture", r"qwen-image-2", "qwen21"),
     ("modelspec.architecture", r"qwen-image", "qwen"),
     ("modelspec.architecture", r"krea-?2", "krea"),

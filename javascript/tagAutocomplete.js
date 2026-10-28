@@ -1472,9 +1472,10 @@ async function autocomplete(textArea, prompt, fixedTag = null) {
         });
     }
 
-    // "Show matching first": LoRAs of the UI preset's architecture, then unknown, then others.
-    // Array.prototype.sort is stable, so name/date/frequency order is kept inside each group.
-    if (TAC_CFG.loraArchFilter === "Show matching first" && results.some(r => r.archRank !== undefined)) {
+    // LoRA architecture filter: LoRAs of the UI preset's architecture, then unknown, then others
+    // (others only remain in "Show matching first"). Array.prototype.sort is stable, so
+    // name/date/frequency order is kept inside each group.
+    if (TAC_CFG.loraArchFilter && TAC_CFG.loraArchFilter !== "Off" && results.some(r => r.archRank !== undefined)) {
         results = results.sort((a, b) => (a.archRank ?? 1) - (b.archRank ?? 1));
     }
 

@@ -368,116 +368,113 @@ def _build_alias_map(base_path: Path) -> dict:
         return {}
 
 
-def _get_lora():
-    """Returns a list of (path, alias_or_None) tuples for all LoRA files.
+def _show_hidden_models() -> bool:
+    """True when LoRA/LyCORIS files under hidden folders (names starting with
+    '.') should be listed. Follows Forge Neo's own 'List the models/files under
+    hidden directories' option, since Forge cannot load them when it is off."""
+    return bool(getattr(shared.opts, "list_hidden_files", True))
+
+
+def _scan_models(base_path: Path):
+    """Returns a list of (path, alias_or_None) tuples for all model files.
     Always uses a filesystem scan so files appear even before a model is loaded.
     When lora.available_loras is populated the alias already respects the user's
-    'lora_preferred_name' setting; otherwise None is returned and get_lora()
+    'lora_preferred_name' setting; otherwise None is returned and _model_rows()
     resolves via safetensors header or filename stem."""
-    alias_map = _build_alias_map(LORA_PATH)
-    lora_paths = [
-        Path(l)
-        for l in glob.glob(LORA_PATH.joinpath("**/*").as_posix(), recursive=True)
+    alias_map = _build_alias_map(base_path)
+    paths = [
+        Path(m)
+        for m in glob.glob(
+            base_path.joinpath("**/*").as_posix(),
+            recursive=True,
+            include_hidden=_show_hidden_models(),
+        )
     ]
-    valid_loras = [
-        lf
-        for lf in lora_paths
-        if lf.suffix in {".safetensors", ".ckpt", ".pt"} and lf.is_file()
+    valid = [
+        mf
+        for mf in paths
+        if mf.suffix in {".safetensors", ".ckpt", ".pt"} and mf.is_file()
     ]
-    return [(lf, alias_map.get(lf.absolute())) for lf in valid_loras]
+    return [(mf, alias_map.get(mf.absolute())) for mf in valid]
+
+
+def _get_lora():
+    return _scan_models(LORA_PATH)
 
 
 def _get_lyco():
-    """Returns a list of (path, alias_or_None) tuples for all LyCORIS files.
-    Same strategy as _get_lora()."""
-    alias_map = _build_alias_map(LYCO_PATH)
-    lyco_paths = [
-        Path(ly)
-        for ly in glob.glob(LYCO_PATH.joinpath("**/*").as_posix(), recursive=True)
-    ]
-    valid_lycos = [
-        lyf
-        for lyf in lyco_paths
-        if lyf.suffix in {".safetensors", ".ckpt", ".pt"} and lyf.is_file()
-    ]
-    return [(lyf, alias_map.get(lyf.absolute())) for lyf in valid_lycos]
+    return _scan_models(LYCO_PATH)
 
 
-def is_visible(p: Path) -> bool:
-    if getattr(shared.opts, "extra_networks_hidden_models", "When searched") != "Never":
+def is_visible(p: Path, base_path: Path) -> bool:
+    if _show_hidden_models():
         return True
-    for part in p.parts:
-        if part.startswith('.'):
-            return False
-    return True
+    return not any(part.startswith('.') for part in p.relative_to(base_path).parts)
 
-def get_lora():
-    """Write a list of all lora.
 
-    Output format (CSV rows): "rel/path/name.ext","sort_key",hash,"alias"
+def _model_rows(entries, base_path: Path):
+    """Build CSV rows: "rel/path/name.ext","sort_key",hash,"alias"
+
     The alias column is what the frontend inserts into <lora:ALIAS:weight>.
-    It mirrors the behaviour of Forge Neo's get_alias(): prefers ss_output_name
-    unless the user has chosen "Filename" in the Extra Networks settings.
+    It mirrors Forge Neo's NetworkOnDisk.get_alias(): prefers ss_output_name
+    unless the user has chosen "Filename" in the Extra Networks settings, or
+    the alias is ambiguous. Training tools write the same ss_output_name into
+    every epoch/step checkpoint (lora1-000001000, lora1-000002000, ...), so an
+    alias shared by more than one file must fall back to the filename stem.
     """
-    valid_loras = _get_lora()
     sort_method = getattr(shared.opts, "tac_modelSortOrder", "Name")
     sorter = sort_criteria.get(sort_method, sort_criteria["Name"])
+    use_filename = getattr(shared.opts, "lora_preferred_name", "Alias from file") == "Filename"
 
-    results = []
-    for l, provided_alias in valid_loras:
-        if not l.exists() or not l.is_file() or not is_visible(l):
+    models = []
+    for m, provided_alias in entries:
+        if not m.exists() or not m.is_file() or not is_visible(m, base_path):
             continue
-        name = l.relative_to(LORA_PATH).as_posix()
-        hash_val = get_lora_simple_hash(l) if model_keyword_installed else ""
-
         # Determine the alias to use for prompt insertion.
         # Priority:
         #   1. Value from lora.available_loras.get_alias() — already respects
         #      the "lora_preferred_name" setting ("Alias from file" / "Filename").
         #   2. ss_output_name from the safetensors header (fallback when the
-        #      built-in lora module is not importable).
+        #      built-in lora module is not importable or not populated yet).
         #   3. Filename stem (last-resort fallback).
-        if provided_alias is not None:
+        if use_filename:
+            alias = m.stem
+        elif provided_alias is not None:
             alias = provided_alias
-        elif l.suffix == ".safetensors":
-            alias = _read_safetensors_alias(l) or l.stem
+        elif m.suffix == ".safetensors":
+            alias = _read_safetensors_alias(m) or m.stem
         else:
-            alias = l.stem
+            alias = m.stem
+        models.append((m, alias))
 
-        sort_key = sorter(l, name, True)
+    # Same rule as Forge Neo's forbidden_network_aliases: a name that refers to
+    # more than one file (as a stem or as an alias) cannot be used as an alias.
+    owners = {}
+    for i, (m, alias) in enumerate(models):
+        for key in {m.stem.lower(), alias.lower()}:
+            owners.setdefault(key, set()).add(i)
+    forbidden = {"none", "addams"}
+
+    results = []
+    for i, (m, alias) in enumerate(models):
+        if alias.lower() in forbidden or len(owners[alias.lower()]) > 1:
+            alias = m.stem
+        name = m.relative_to(base_path).as_posix()
+        hash_val = get_lora_simple_hash(m) if model_keyword_installed else ""
+        sort_key = sorter(m, name, True)
         results.append(f'"{name}","{sort_key}",{hash_val},"{alias}"')
 
     return results
+
+
+def get_lora():
+    """Write a list of all lora. See _model_rows() for the format."""
+    return _model_rows(_get_lora(), LORA_PATH)
 
 
 def get_lyco():
-    """Write a list of all LyCORIS/LOHA.
-
-    Output format (CSV rows): "rel/path/name.ext","sort_key",hash,"alias"
-    Same alias logic as get_lora().
-    """
-    valid_lycos = _get_lyco()
-    sort_method = getattr(shared.opts, "tac_modelSortOrder", "Name")
-    sorter = sort_criteria.get(sort_method, sort_criteria["Name"])
-
-    results = []
-    for ly, provided_alias in valid_lycos:
-        if not ly.exists() or not ly.is_file() or not is_visible(ly):
-            continue
-        name = ly.relative_to(LYCO_PATH).as_posix()
-        hash_val = get_lora_simple_hash(ly) if model_keyword_installed else ""
-
-        if provided_alias is not None:
-            alias = provided_alias
-        elif ly.suffix == ".safetensors":
-            alias = _read_safetensors_alias(ly) or ly.stem
-        else:
-            alias = ly.stem
-
-        sort_key = sorter(ly, name, True)
-        results.append(f'"{name}","{sort_key}",{hash_val},"{alias}"')
-
-    return results
+    """Write a list of all LyCORIS/LOHA. Same format as get_lora()."""
+    return _model_rows(_get_lyco(), LYCO_PATH)
 
 def get_style_names():
     try:
@@ -817,7 +814,7 @@ def api_tac(_: gr.Blocks, app: FastAPI):
             return Response(status_code=404)
 
         try:
-            json_candidates = glob.glob(base_path.as_posix() + f"/**/{glob.escape(filename)}.json", recursive=True)
+            json_candidates = glob.glob(base_path.as_posix() + f"/**/{glob.escape(filename)}.json", recursive=True, include_hidden=_show_hidden_models())
             if json_candidates is not None and len(json_candidates) > 0 and Path(json_candidates[0]).is_file():
                 return FileResponse(json_candidates[0])
         except Exception as e:
@@ -828,7 +825,7 @@ def api_tac(_: gr.Blocks, app: FastAPI):
             return Response(status_code=404)
 
         try:
-            img_glob = glob.glob(base_path.as_posix() + f"/**/{glob.escape(filename)}.*", recursive=True)
+            img_glob = glob.glob(base_path.as_posix() + f"/**/{glob.escape(filename)}.*", recursive=True, include_hidden=_show_hidden_models())
             img_candidates = [img for img in img_glob if Path(img).suffix in [".png", ".jpg", ".jpeg", ".webp", ".gif"] and Path(img).is_file()]
             if img_candidates is not None and len(img_candidates) > 0:
                 if blob:
@@ -869,7 +866,8 @@ def api_tac(_: gr.Blocks, app: FastAPI):
 
         # Locate the LoRA file
         path_glob = glob.glob(
-            LORA_PATH.as_posix() + f"/**/{glob.escape(lora_name)}.*", recursive=True
+            LORA_PATH.as_posix() + f"/**/{glob.escape(lora_name)}.*", recursive=True,
+            include_hidden=_show_hidden_models(),
         )
         paths = [
             p for p in path_glob
@@ -1005,7 +1003,7 @@ def api_tac(_: gr.Blocks, app: FastAPI):
 
     @app.get("/tacapi/v1/lora-cached-hash/{lora_name}")
     async def get_lora_cached_hash(lora_name: str):
-        path_glob = glob.glob(LORA_PATH.as_posix() + f"/**/{glob.escape(lora_name)}.*", recursive=True)
+        path_glob = glob.glob(LORA_PATH.as_posix() + f"/**/{glob.escape(lora_name)}.*", recursive=True, include_hidden=_show_hidden_models())
         paths = [lora for lora in path_glob if Path(lora).suffix in [".safetensors", ".ckpt", ".pt"] and Path(lora).is_file()]
         if paths is not None and len(paths) > 0:
             path = paths[0]

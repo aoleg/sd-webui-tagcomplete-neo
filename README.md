@@ -32,6 +32,11 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 
 ## 🆕 What's New
 
+### v0.2.4: Hidden-folder LoRAs and numbered checkpoints
+
+- **LoRAs in hidden folders**: LoRA/LyCORIS files in folders whose names start with `.` are listed when Forge Neo's "List the models/files under hidden directories" option is on (the default)
+- **Numbered checkpoints keep their names**: when several checkpoints share one alias (`lora1-0000001000`, `lora1-0000002000`), each is inserted by its filename; a single checkpoint still uses its alias
+
 ### v0.2.3: Wildcard contents fix
 
 - **Wildcard files show their contents again**: after choosing a wildcard file, the popup lists the lines inside it instead of listing the files again ([#4](https://github.com/eduardoabreu81/sd-webui-tagcomplete-neo/issues/4))
@@ -62,6 +67,11 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 ---
 
 ## 📖 Changelog
+
+### v0.2.4: Hidden-folder LoRAs and numbered checkpoints
+- LoRA/LyCORIS files in hidden folders are scanned, and their previews, info, trigger words and hashes are found, when Forge Neo's `list_hidden_files` option is on. Only folders inside the LoRA directory count as hidden
+- An alias shared by more than one file (as a filename or an alias, case-insensitive) falls back to the filename, as Forge Neo does. Training tools write the same `ss_output_name` into every epoch/step checkpoint, which made them all insert as one name
+- The "Filename" preference for LoRA names is honoured before a model is loaded
 
 ### v0.2.3: Wildcard contents fix
 - Choosing a wildcard file now shows the lines inside it. Autocomplete triggered by the extension's own inserted text runs immediately again, while typing stays debounced (#4)
@@ -127,6 +137,10 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 - Extension resilience after Forge updates ✅
 - CivitAI trigger word lookup with SHA256 cache ✅
 - "After LoRA/LyCO" insertion option ✅
+
+### v0.2.4: Hidden-folder LoRAs and numbered checkpoints ✅
+- LoRAs in hidden folders follow `list_hidden_files` ✅
+- Numbered checkpoints that share an alias insert by filename ✅
 
 ### v0.2.3: Wildcard contents fix ✅
 - Wildcard file contents shown after choosing a file ✅

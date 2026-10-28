@@ -3,7 +3,7 @@
 Only the safetensors header is read: tensor names, shapes and __metadata__.
 The answer is a set of labels. Most labels are Forge Neo UI preset names
 (modules_forge/presets.py); a few name architectures that have no built-in
-preset (fibo2, flux3, h3, ideogram4) so they can still be recognised. An empty set
+preset (fibo2, flux3, h3, ideogram4, yue2) so they can still be recognised. An empty set
 means unknown. A set with more than one label means the header cannot tell
 those architectures apart, and the LoRA belongs with each of them.
 
@@ -23,7 +23,7 @@ import struct
 from pathlib import Path
 
 # Bump when the rules change, so cached results are recomputed.
-CLASSIFIER_VERSION = 4
+CLASSIFIER_VERSION = 5
 
 MAX_HEADER = 100 * 1024 * 1024
 
@@ -52,7 +52,7 @@ def read_safetensors_header(path: Path):
 # Adapter suffix after the module name: (adapter kind, regex).
 _SUFFIXES = [
     ("lora", re.compile(r"[._](lora_up|lora_down|lora_mid)\.weight$")),
-    ("lora", re.compile(r"\.(lora_A|lora_B)(?:\.default)?\.weight$")),
+    ("lora", re.compile(r"\.(lora_A|lora_B)(?:\.default)?(?:\.weight)?$")),
     ("lora", re.compile(r"\.lora\.(up|down)\.weight$")),
     ("lora", re.compile(r"_lora\.(up|down)\.weight$")),
     ("lora", re.compile(r"\.lora_linear_layer\.(up|down)\.weight$")),
@@ -116,8 +116,9 @@ def _widths(parts: dict):
         return None
 
     try:
-        up = find("lora_up.weight", "lora_B.weight", "lora_B.default.weight", "lora.up.weight", "up.weight")
-        down = find("lora_down.weight", "lora_A.weight", "lora_A.default.weight", "lora.down.weight", "down.weight")
+        up = find("lora_up.weight", "lora_B.weight", "lora_B.default.weight", "lora_B", "lora.up.weight", "up.weight")
+        down = find("lora_down.weight", "lora_A.weight", "lora_A.default.weight", "lora_A", "lora.down.weight",
+                    "down.weight")
         if up or down:
             return (up[0] if up else None, down[1] if down and len(down) > 1 else None)
         w1 = parts.get("lokr_w1")
@@ -551,6 +552,24 @@ FAMILIES = [
             {"blocks.#": 50},
         )],
     ),
+    # YuE2, an LLM-based music model: Qwen-style decoder layers (28 x 2048), with
+    # a separate non-autoregressive stack (nar_*) in some adapters.
+    _Family(
+        "yue2",
+        [
+            "model.layers.#.(self_attn|nar_self_attn).(q_proj|k_proj|v_proj|o_proj)",
+            "model.layers.#.(mlp|nar_mlp).(gate_proj|up_proj|down_proj)",
+        ],
+        [_Variant(
+            [
+                ("model.layers.#.(self_attn|nar_self_attn).(q_proj|o_proj)", 2048, 2048),
+                ("model.layers.#.(self_attn|nar_self_attn).(k_proj|v_proj)", 1024, 2048),
+                ("model.layers.#.(mlp|nar_mlp).(gate_proj|up_proj)", 6144, 2048),
+                ("model.layers.#.(mlp|nar_mlp).down_proj", 2048, 6144),
+            ],
+            {"model.layers.#": 28},
+        )],
+    ),
     _Family(
         "ideogram4",
         ["layers.#.attention.(qkv|o)", "layers.#.feed_forward.(w1|w2|w3)", "layers.#.adaln_modulation"],
@@ -720,6 +739,8 @@ _METADATA = [
     ("ss_base_model_version", r"wan", "wan"),
     ("ss_base_model_version", r"anima", "anima"),
     ("maltrainer_architecture", r"moss_image", "moss"),
+    ("adapter_config", r'.*"format": *"moss-edit-lora"', "moss"),
+    ("format", r"fl-yue2", "yue2"),
 ]
 
 

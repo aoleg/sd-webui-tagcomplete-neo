@@ -23,6 +23,7 @@ from scripts.model_keyword_support import (get_lora_simple_hash,
                                            load_hash_cache, update_hash_cache,
                                            write_model_keyword_path)
 from scripts.shared_paths import *
+from scripts.lora_arch import CLASSIFIER_VERSION, classify, read_safetensors_header, user_label
 
 try:
     try:
@@ -314,23 +315,62 @@ def get_embeddings_from_folder():
 model_keyword_installed = write_model_keyword_path()
 
 
-def _read_safetensors_alias(path: Path):
-    """Read ss_output_name from a safetensors header without loading tensors.
+LORA_ARCH_CACHE = "lora_arch_cache.json"
 
-    Returns the value as a string, or None if not present or on any error.
-    Only reads the compact metadata header (first ~8 KB in practice), so it is fast.
-    """
+
+def _load_lora_arch_cache() -> dict:
     try:
-        import struct
-        import json as _json
-        with open(path, "rb") as f:
-            raw = f.read(8)
-            if len(raw) < 8:
-                return None
-            length = struct.unpack("<Q", raw)[0]
-            header = _json.loads(f.read(length))
-            value = header.get("__metadata__", {}).get("ss_output_name", None)
-            return value if value else None
+        with open(TEMP_PATH.joinpath(LORA_ARCH_CACHE), "r", encoding="utf-8") as f:
+            cache = json.load(f)
+        return cache if isinstance(cache, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_lora_arch_cache(cache: dict):
+    try:
+        with open(TEMP_PATH.joinpath(LORA_ARCH_CACHE), "w", encoding="utf-8") as f:
+            json.dump(cache, f)
+    except Exception as e:
+        print(f"[Tag Autocomplete Neo] Warning: could not write {LORA_ARCH_CACHE}: {e}")
+
+
+def _safetensors_info(path: Path, cache: dict, seen: dict):
+    """Return (ss_output_name or None, architecture labels) for a .safetensors file.
+
+    Both come from one header read (tensor data is never read). Results are
+    cached by size and modification time; the user's "sd version" is not part
+    of the cache, since it lives in a separate file the user can edit.
+    """
+    key = path.absolute().as_posix()
+    try:
+        st = path.stat()
+    except OSError:
+        return None, []
+    entry = cache.get(key)
+    if not (isinstance(entry, dict) and entry.get("size") == st.st_size
+            and entry.get("mtime_ns") == st.st_mtime_ns and entry.get("version") == CLASSIFIER_VERSION):
+        try:
+            tensors, metadata = read_safetensors_header(path)
+            output_name = metadata.get("ss_output_name") or None
+            arch = sorted(classify(tensors, metadata))
+        except Exception:
+            output_name, arch = None, []
+        entry = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "version": CLASSIFIER_VERSION,
+                 "output_name": output_name, "arch": arch}
+    seen[key] = entry
+    return entry["output_name"], entry["arch"]
+
+
+def _user_sd_version(path: Path):
+    """The "sd version" saved by Forge's Extra Networks metadata editor, if any."""
+    json_path = path.with_suffix(".json")
+    if not json_path.is_file():
+        return None
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("sd version") if isinstance(data, dict) else None
     except Exception:
         return None
 
@@ -413,7 +453,7 @@ def is_visible(p: Path, base_path: Path) -> bool:
 
 
 def _model_rows(entries, base_path: Path):
-    """Build CSV rows: "rel/path/name.ext","sort_key",hash,"alias"
+    """Build CSV rows: "rel/path/name.ext","sort_key",hash,"alias","arch"
 
     The alias column is what the frontend inserts into <lora:ALIAS:weight>.
     It mirrors Forge Neo's NetworkOnDisk.get_alias(): prefers ss_output_name
@@ -421,15 +461,30 @@ def _model_rows(entries, base_path: Path):
     the alias is ambiguous. Training tools write the same ss_output_name into
     every epoch/step checkpoint (lora1-000001000, lora1-000002000, ...), so an
     alias shared by more than one file must fall back to the filename stem.
+
+    The arch column lists the architectures the file can belong to, joined
+    with "|" (see scripts/lora_arch.py); it is empty when unknown.
+
+    .pt and .ckpt files take part in the alias rule (Forge counts them too)
+    but get no row: they are never suggested, and must be typed by hand.
     """
     sort_method = getattr(shared.opts, "tac_modelSortOrder", "Name")
     sorter = sort_criteria.get(sort_method, sort_criteria["Name"])
     use_filename = getattr(shared.opts, "lora_preferred_name", "Alias from file") == "Filename"
+    cache = _load_lora_arch_cache()
+    seen = {}
 
     models = []
     for m, provided_alias in entries:
         if not m.exists() or not m.is_file() or not is_visible(m, base_path):
             continue
+        if m.suffix == ".safetensors":
+            output_name, arch = _safetensors_info(m, cache, seen)
+            user = user_label(_user_sd_version(m))
+            if user:
+                arch = [user]
+        else:
+            output_name, arch = None, []
         # Determine the alias to use for prompt insertion.
         # Priority:
         #   1. Value from lora.available_loras.get_alias() — already respects
@@ -441,28 +496,31 @@ def _model_rows(entries, base_path: Path):
             alias = m.stem
         elif provided_alias is not None:
             alias = provided_alias
-        elif m.suffix == ".safetensors":
-            alias = _read_safetensors_alias(m) or m.stem
         else:
-            alias = m.stem
-        models.append((m, alias))
+            alias = output_name or m.stem
+        models.append((m, alias, arch))
+
+    if seen != cache:
+        _save_lora_arch_cache(seen)
 
     # Same rule as Forge Neo's forbidden_network_aliases: a name that refers to
     # more than one file (as a stem or as an alias) cannot be used as an alias.
     owners = {}
-    for i, (m, alias) in enumerate(models):
+    for i, (m, alias, _) in enumerate(models):
         for key in {m.stem.lower(), alias.lower()}:
             owners.setdefault(key, set()).add(i)
     forbidden = {"none", "addams"}
 
     results = []
-    for i, (m, alias) in enumerate(models):
+    for i, (m, alias, arch) in enumerate(models):
+        if m.suffix != ".safetensors":
+            continue
         if alias.lower() in forbidden or len(owners[alias.lower()]) > 1:
             alias = m.stem
         name = m.relative_to(base_path).as_posix()
         hash_val = get_lora_simple_hash(m) if model_keyword_installed else ""
         sort_key = sorter(m, name, True)
-        results.append(f'"{name}","{sort_key}",{hash_val},"{alias}"')
+        results.append(f'"{name}","{sort_key}",{hash_val},"{alias}","{"|".join(arch)}"')
 
     return results
 
@@ -664,6 +722,7 @@ def on_ui_settings():
         "tac_forceRefreshEmbeddings": shared.OptionInfo(False, "Force refresh embeddings when pressing the extra networks refresh button").info("Turn this on if you have issues with new embeddings not registering correctly in TAC. Warning: Seems to cause reloading issues in gradio for some users."),
         "tac_includeEmbeddingsInNormalResults": shared.OptionInfo(False, "Include embeddings in normal tag results").info("The 'JumpTo...' keybinds (End & Home key by default) will select the first non-embedding result of their direction on the first press for quick navigation in longer lists."),
         "tac_useLoras": shared.OptionInfo(True, "Search for Loras"),
+        "tac_loraArchFilter": shared.OptionInfo("Hide other architectures", "Filter Loras by the architecture of the UI preset", gr.Radio, {"choices": ["Off", "Hide other architectures", "Show matching first"]}).info("The architecture is read from each Lora file. Loras whose architecture cannot be determined are always shown. .pt and .ckpt Loras are never suggested; type them by hand."),
         "tac_useLycos": shared.OptionInfo(True, "Search for LyCORIS/LoHa"),
         "tac_useLoraPrefixForLycos": shared.OptionInfo(True, "Use the '<lora:' prefix instead of '<lyco:' for models in the LyCORIS folder").info("The lyco prefix is included for backwards compatibility and not used anymore by default. Disable this if you are on an old webui version without built-in lyco support."),
         "tac_showWikiLinks": shared.OptionInfo(False, "Show '?' next to tags, linking to its Danbooru or e621 wiki page").info("Warning: This is an external site and very likely contains NSFW examples!"),

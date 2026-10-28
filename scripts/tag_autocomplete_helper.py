@@ -696,6 +696,7 @@ def on_ui_settings():
         "Logarithmic (weak)": "Will respect the base order and slightly prefer often used tags",
         "Logarithmic (strong)": "Same as Logarithmic (weak), but with a stronger bias",
         "Usage first": "Will list used tags by frequency before all others",
+        "Recent, then frequent": "Lists the last few results you used first (most recent first), then frequently used ones, then the base order",
     }
 
     tac_options = {
@@ -734,6 +735,7 @@ def on_ui_settings():
         # Frequency sorting settings
         "tac_frequencySort": shared.OptionInfo(True, "Locally record tag usage and sort frequent tags higher").info("Will also work for extra networks, keeping the specified base order"),
         "tac_frequencyFunction": shared.OptionInfo("Logarithmic (weak)", "Function to use for frequency sorting", gr.Dropdown, lambda: {"choices": list(frequency_sort_functions.keys())}).info("; ".join([f'<b>{key}</b>: {val}' for key, val in frequency_sort_functions.items()])),
+        "tac_frequencyRecentCount": shared.OptionInfo(3, "Number of recently used results listed first").info("Only for 'Recent, then frequent'. These skip the minimum number of uses below, so a result moves up after its first use. Set to 0 to disable."),
         "tac_frequencyMinCount": shared.OptionInfo(3, "Minimum number of uses for a tag to be considered frequent").info("Tags with less uses than this will not be sorted higher, even if the sorting function would normally result in a higher position."),
         "tac_frequencyMaxAge": shared.OptionInfo(30, "Maximum days since last use for a tag to be considered frequent").info("Similar to the above, tags that haven't been used in this many days will not be sorted higher. Set to 0 to disable."),
         "tac_frequencyRecommendCap": shared.OptionInfo(10, "Maximum number of recommended tags").info("Limits the maximum number of recommended tags to not drown out normal results. Set to 0 to disable."),
@@ -853,6 +855,25 @@ def on_ui_settings():
     shared.opts.add_option("tac_refreshTempFiles", shared.OptionInfo("Refresh TAC temp files", "Refresh internal temp files", gr.HTML, {}, refresh=refresh_temp_files, section=TAC_SECTION))
 
 script_callbacks.on_ui_settings(on_ui_settings)
+
+def select_use_counts(count_list, cap: int, recent: int):
+    """Pick the use counts to send to the frontend.
+
+    count_list holds (name, type, count, last_used) rows. With cap > 0 only the
+    cap most used rows are kept; with recent > 0 the recent most recently used
+    rows (count > 0) are kept too, whatever their count, for "Recent, then
+    frequent". last_used is SQLite's "YYYY-MM-DD HH:MM:SS", so it sorts as text.
+    """
+    if cap <= 0:
+        return count_list
+    selected = sorted(count_list, key=lambda x: x[2], reverse=True)[:cap]
+    if recent > 0:
+        used = [row for row in count_list if row[2] and row[3]]
+        for row in sorted(used, key=lambda x: x[3], reverse=True)[:recent]:
+            if row not in selected:
+                selected.append(row)
+    return selected
+
 
 def get_style_mtime():
     try:
@@ -1164,13 +1185,12 @@ def api_tac(_: gr.Blocks, app: FastAPI):
             count_list = list(db.get_tag_counts(body.tagNames, body.tagTypes, body.neg, date_limit))
         else:
             count_list = None
-    
-        # If a limit is set, return at max the top n results by count
-        if count_list and len(count_list):
-            limit = int(min(getattr(shared.opts, "tac_frequencyRecommendCap", 10), len(count_list)))
-            # Sort by count and return the top n
-            if limit > 0:
-                count_list = sorted(count_list, key=lambda x: x[2], reverse=True)[:limit]
+
+        if count_list:
+            recent = 0
+            if getattr(shared.opts, "tac_frequencyFunction", "") == "Recent, then frequent":
+                recent = int(getattr(shared.opts, "tac_frequencyRecentCount", 3))
+            count_list = select_use_counts(count_list, int(getattr(shared.opts, "tac_frequencyRecommendCap", 10)), recent)
 
         return db_request(lambda: count_list, get=True)
 

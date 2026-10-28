@@ -282,6 +282,7 @@ async function syncOptions() {
         modelSortOrder: opts["tac_modelSortOrder"],
         frequencySort: opts["tac_frequencySort"],
         frequencyFunction: opts["tac_frequencyFunction"],
+        frequencyRecentCount: opts["tac_frequencyRecentCount"],
         frequencyMinCount: opts["tac_frequencyMinCount"],
         frequencyMaxAge: opts["tac_frequencyMaxAge"],
         frequencyRecommendCap: opts["tac_frequencyRecommendCap"],
@@ -1454,22 +1455,7 @@ async function autocomplete(textArea, prompt, fixedTag = null) {
         const names = TAC_CFG.frequencyIncludeAlias ? tagNames.concat(aliasNames) : tagNames;
         const counts = await getUseCounts(names, types, isNegative) || [];
 
-        // Pre-calculate weights to prevent duplicate work
-        const resultBiasMap = new Map();
-        results.forEach(result => {
-            const name = result.type === ResultType.chant ? result.aliases : result.text;
-            const type = result.type;
-            // Find matching pair from DB results
-            const useStats = counts.find(c => c.name === name && c.type === type);
-            const uses = useStats?.count || 0;
-            // Calculate & set weight
-            const weight = calculateUsageBias(result, result.count, uses)
-            resultBiasMap.set(result, weight);
-        });
-        // Actual sorting with the pre-calculated weights
-        results = results.sort((a, b) => {
-            return resultBiasMap.get(b) - resultBiasMap.get(a);
-        });
+        results = sortByUsage(results, counts);
     }
 
     // LoRA architecture filter: LoRAs of the UI preset's architecture, then unknown, then others

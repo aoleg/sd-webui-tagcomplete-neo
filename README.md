@@ -32,6 +32,13 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 
 ## 🆕 What's New
 
+### v0.2.5: LoRA architecture filter and recent-first sorting
+
+- **LoRAs that match your model**: LoRA suggestions follow the architecture of Forge Neo's UI Preset. LoRAs made for another model are hidden, and LoRAs whose architecture cannot be determined are listed last, marked `unknown`. Choose "Show matching first" to list the others last instead of hiding them ⭐
+- **Recent, then frequent**: a new frequency sorting choice lists the last few tags or LoRAs you used first, then the ones you use often, then the usual order ⭐
+- **Alphabetical across folders**: the new "Name (ignore folders)" model sort order sorts LoRAs and wildcards by file name, so subfolders no longer group together ⭐
+- **`.pt` and `.ckpt` LoRAs** are no longer suggested; type them by hand
+
 ### v0.2.4: Hidden-folder LoRAs and numbered checkpoints
 
 - **LoRAs in hidden folders**: LoRA/LyCORIS files in folders whose names start with `.` are listed when Forge Neo's "List the models/files under hidden directories" option is on (the default)
@@ -67,6 +74,14 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 ---
 
 ## 📖 Changelog
+
+### v0.2.5: LoRA architecture filter and recent-first sorting
+- New setting "Filter Loras by the architecture of the UI preset": Off, Hide other architectures (default), Show matching first. The filter turns itself off when the UI Preset is missing or is not an architecture it knows
+- Each LoRA's architecture is read from its safetensors header (tensor names, shapes, metadata), never its weights, and cached in `tags/temp/lora_arch_cache.json`. An "sd version" set in Forge's Extra Networks metadata editor takes priority. Recognised: SD1, SDXL, Flux.1 (including Chroma), Flux.2 Klein, Qwen-Image, Qwen-Image-2.1, Lumina 2, Z-Image, Wan, Anima, Ernie-Image, PiD, Krea 2, MOSS-Image, and Fibo 2, Flux 3, MiniMax H3, Ideogram 4 and YuE2, which have no built-in preset and are hidden under every preset unless an extension adds one. LoRAs that only change top-level layers (many sliders) are recognised too
+- A LoRA whose header fits several architectures is offered under each of them
+- `.pt` and `.ckpt` LoRAs are no longer suggested; they still count for the alias collision rule
+- New frequency sorting choice "Recent, then frequent", with the setting "Number of recently used results listed first" (default 3). Recently used results skip the minimum use count. The other sorting choices are unchanged
+- New model sort order "Name (ignore folders)": sorts by file name instead of the path inside the model folder
 
 ### v0.2.4: Hidden-folder LoRAs and numbered checkpoints
 - LoRA/LyCORIS files in hidden folders are scanned, and their previews, info, trigger words and hashes are found, when Forge Neo's `list_hidden_files` option is on. Only folders inside the LoRA directory count as hidden
@@ -138,6 +153,11 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 - CivitAI trigger word lookup with SHA256 cache ✅
 - "After LoRA/LyCO" insertion option ✅
 
+### v0.2.5: LoRA architecture filter and recent-first sorting ✅
+- LoRA suggestions follow the UI Preset's architecture ✅
+- "Recent, then frequent" frequency sorting ✅
+- "Name (ignore folders)" model sort order ✅
+
 ### v0.2.4: Hidden-folder LoRAs and numbered checkpoints ✅
 - LoRAs in hidden folders follow `list_hidden_files` ✅
 - Numbered checkpoints that share an alias insert by filename ✅
@@ -191,12 +211,13 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 - **Keyboard navigation** — arrow keys, Tab, Enter, Escape, all configurable
 - **Tag color coding** by category, with post count for relevance
 - **Alias and translation search** — find tags by their alternate names or translated terms
-- **Frequency sorting** — remembers your most-used tags and promotes them to the top ⭐
+- **Frequency sorting** — remembers your most-used tags and promotes them to the top; "Recent, then frequent" lists the last few you used first ⭐
 - **Status indicator** — colored dot in the toolbar shows when the extension is loading, ready, or in error state ⭐
 
 ### ➕ Extra Networks
 
 - **LoRA and LyCORIS autocomplete** triggered by `<`
+- **Architecture filter** — suggests only LoRAs made for the UI Preset's model, read from each file's header ⭐
 - **Embedding autocomplete** triggered by `<e:`
 - **Thumbnail preview** in the completion popup
 - **Correct alias insertion** — uses the same identifier Forge Neo expects (`ss_output_name` or filename, respecting your Extra Networks setting) so tokens never blink ⭐

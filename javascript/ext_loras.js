@@ -5,7 +5,7 @@ const LORA_TRIGGER = () => TAC_CFG.useLoras && tagword.match(LORA_REGEX);
 // A UI preset outside this list turns the architecture filter off instead of hiding every LoRA.
 const LORA_ARCH_LABELS = new Set([
     "sd", "xl", "flux", "klein", "qwen", "qwen21", "lumina", "zit", "wan", "anima", "ernie", "pid",
-    "krea", "moss", "fibo2", "flux3", "ideogram4",
+    "krea", "moss", "fibo2", "flux3", "h3", "ideogram4",
 ]);
 const LORA_ARCH_SEPARATOR = " " + String.fromCharCode(0xb7) + " ";
 

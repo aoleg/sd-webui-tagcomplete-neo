@@ -32,6 +32,16 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 
 ## 🆕 What's New
 
+### v0.2.4: Hidden-folder LoRAs & training checkpoints
+
+> ⚠️ **Updating from an older version?**
+> - This version needs **Python 3.11 or newer**. Forge Neo recommends Python 3.13, so most installs are already fine. If your Forge Neo still runs on Python 3.10, LoRA suggestions will stop working until you upgrade.
+> - **LoRAs inside folders whose name starts with `.` now show up** in the suggestions. To hide them again, turn off **List the models/files under hidden directories** in Forge Neo's settings. Forge itself only loads them while that option is on.
+
+- **LoRAs in hidden folders are listed**: LoRA files in folders like `.archive` appear in suggestions, following the same Forge Neo option that decides whether they can be loaded ([#5](https://github.com/eduardoabreu81/sd-webui-tagcomplete-neo/pull/5))
+- **Each training checkpoint gets its own name**: files saved at different training steps (`mylora-000001000`, `mylora-000002000`…) are no longer all inserted under the same name, so the LoRA you pick is the one Forge Neo loads ([#5](https://github.com/eduardoabreu81/sd-webui-tagcomplete-neo/pull/5))
+- **"Filename" naming works from startup**: choosing "Filename" for how LoRAs are referred to in the prompt now applies even before a model is loaded
+
 ### v0.2.3: Wildcard contents fix
 
 - **Wildcard files show their contents again**: after choosing a wildcard file, the popup lists the lines inside it instead of listing the files again ([#4](https://github.com/eduardoabreu81/sd-webui-tagcomplete-neo/issues/4))
@@ -62,6 +72,12 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 ---
 
 ## 📖 Changelog
+
+### v0.2.4: Hidden-folder LoRAs & training checkpoints
+- LoRA/LyCORIS files under hidden folders (names starting with `.`) are listed when Forge Neo's `List the models/files under hidden directories` option is on; preview, info, trigger word and hash lookups find them too. Only folders inside the LoRA directory count as hidden (#5)
+- An alias shared by more than one file falls back to the filename stem, matching Forge Neo's rule; the reserved aliases `none` and `Addams` fall back too (#5)
+- The "Filename" choice for `When adding to prompt, refer to Lora by` is honoured before a model is loaded (#5)
+- Requires Python 3.11 or newer
 
 ### v0.2.3: Wildcard contents fix
 - Choosing a wildcard file now shows the lines inside it. Autocomplete triggered by the extension's own inserted text runs immediately again, while typing stays debounced (#4)
@@ -127,6 +143,10 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 - Extension resilience after Forge updates ✅
 - CivitAI trigger word lookup with SHA256 cache ✅
 - "After LoRA/LyCO" insertion option ✅
+
+### v0.2.4: Hidden-folder LoRAs & training checkpoints ✅
+- LoRAs in hidden folders listed ✅
+- Training checkpoints inserted under their own names ✅
 
 ### v0.2.3: Wildcard contents fix ✅
 - Wildcard file contents shown after choosing a file ✅
@@ -211,7 +231,7 @@ Fork of [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-web
 3. Paste: `https://github.com/eduardoabreu81/sd-webui-tagcomplete-neo`
 4. Click **Install** and reload the WebUI
 
-> ⚠️ This extension requires **Forge Neo**. It will not work on Automatic1111 or Forge Classic.
+> ⚠️ This extension requires **Forge Neo** running on **Python 3.11 or newer** (Forge Neo recommends 3.13). It will not work on Automatic1111 or Forge Classic.
 
 ---
 
